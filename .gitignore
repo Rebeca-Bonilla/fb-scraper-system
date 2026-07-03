@@ -1,0 +1,28 @@
+# Node
+node_modules/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Entornos
+.env
+.env.*
+!.env.example
+
+# Credenciales locales
+scraper-engine/accounts.local.json
+
+# Evidencias de login
+login_error.png
+login_filled.png
+post_login.png
+login_error.html
+
+# Builds
+dist/
+build/
+
+backend/data/*.csv
+docker-images/*.tar

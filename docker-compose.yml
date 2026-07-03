@@ -1,0 +1,94 @@
+services:
+  db:
+    image: mariadb:11
+    container_name: fb-scraper-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: fb_scraper
+      MYSQL_USER: scraper
+      MYSQL_PASSWORD: scraperpass
+    ports:
+      - "3308:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis:
+    image: redis:7-alpine
+    container_name: fb-scraper-redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  scraper:
+    build:
+      context: ./scraper-engine
+      dockerfile: Dockerfile
+    container_name: fb-scraper-engine
+    restart: always
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1366
+      - SCREEN_HEIGHT=768
+    ports:
+      - "8000:8000"
+      - "5900:5900"
+    volumes:
+      - ./scraper-engine:/app
+      - ./scraper-engine/accounts.local.json:/app/accounts.local.json
+      - ./data:/app/data
+    command: sh -c "rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1366x768x24 & sleep 2 && x11vnc -display :99 -forever -nopw & python src/main.py"
+    
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fb-scraper-backend
+    restart: always
+    depends_on:
+      - db
+      - redis
+      - scraper
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: rootpass
+      DB_NAME: fb_scraper
+      DB_PORT: 3306
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SCRAPER_URL: http://scraper:8000
+      JWT_SECRET: supersecretkey123
+      PORT: 3000
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./backend/data:/app/data
+    command: bun src/index.ts
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: fb-scraper-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  mariadb_data:
