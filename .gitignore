@@ -26,3 +26,13 @@ build/
 
 backend/data/*.csv
 docker-images/*.tar
+
+#---
+scraper-engine/accounts.json
+scraper-engine/screenshots/
+scraper-engine/sessions/
+scraper-engine/cookies/
+.env
+
+*.png
+scraper-engine/*.png

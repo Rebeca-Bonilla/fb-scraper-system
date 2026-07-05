@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS scraping_tasks (
     completed_at TIMESTAMP NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS fb_accounts (
+    id VARCHAR(36) PRIMARY KEY,
+    alias VARCHAR(50) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_encrypted VARCHAR(500) NOT NULL,
+    status ENUM('active', 'blocked', 'checkpoint', 'disabled') DEFAULT 'active',
+    last_used_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
+CREATE INDEX idx_accounts_status ON fb_accounts(status);
 CREATE INDEX idx_tasks_user_id ON scraping_tasks(user_id);
 CREATE INDEX idx_tasks_status ON scraping_tasks(status);

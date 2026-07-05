@@ -4,10 +4,10 @@ services:
     container_name: fb-scraper-db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE: fb_scraper
-      MYSQL_USER: scraper
-      MYSQL_PASSWORD: scraperpass
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
       - "3308:3306"
     volumes:
@@ -36,13 +36,13 @@ services:
       - SCREEN_HEIGHT=768
     ports:
       - "8000:8000"
-      - "5900:5900"
+      - "127.0.0.1:5901:5900"
     volumes:
       - ./scraper-engine:/app
       - ./scraper-engine/accounts.local.json:/app/accounts.local.json
       - ./data:/app/data
-    command: sh -c "rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1366x768x24 & sleep 2 && x11vnc -display :99 -forever -nopw & python src/main.py"
-    
+    command: sh -c "rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1366x768x24 & sleep 2 && x11vnc -display :99 -forever -passwd ${VNC_PASSWORD} -listen 0.0.0.0 -rfbport 5900 & python src/main.py"
+
   backend:
     build:
       context: ./backend
@@ -55,14 +55,15 @@ services:
       - scraper
     environment:
       DB_HOST: db
-      DB_USER: root
-      DB_PASSWORD: rootpass
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: fb_scraper
       DB_PORT: 3306
       REDIS_HOST: redis
       REDIS_PORT: 6379
       SCRAPER_URL: http://scraper:8000
-      JWT_SECRET: supersecretkey123
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       PORT: 3000
       NODE_ENV: development
     ports:
