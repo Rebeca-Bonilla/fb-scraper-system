@@ -27,13 +27,20 @@ services:
       dockerfile: Dockerfile
     container_name: fb-scraper-engine
     restart: always
+    shm_size: "2gb"
     depends_on:
       - db
       - redis
     environment:
-      - DISPLAY=:99
-      - SCREEN_WIDTH=1366
-      - SCREEN_HEIGHT=768
+      DISPLAY: :99
+      SCREEN_WIDTH: 1366
+      SCREEN_HEIGHT: 768
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: fb_scraper
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     ports:
       - "8000:8000"
       - "127.0.0.1:5901:5900"
@@ -41,7 +48,8 @@ services:
       - ./scraper-engine:/app
       - ./scraper-engine/accounts.local.json:/app/accounts.local.json
       - ./data:/app/data
-    command: sh -c "rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1366x768x24 & sleep 2 && x11vnc -display :99 -forever -passwd ${VNC_PASSWORD} -listen 0.0.0.0 -rfbport 5900 & python src/main.py"
+      - ./scraper-engine/chrome-profile:/app/chrome-profile
+    command: sh -c "rm -f /tmp/.X99-lock && Xvfb :99 -screen 0 1366x768x24 & sleep 2 && x11vnc -display :99 -forever -noxdamage -passwd a1a7b223f22493cd64eafad1 -listen 0.0.0.0 -rfbport 5900 & python src/main.py"
 
   backend:
     build:

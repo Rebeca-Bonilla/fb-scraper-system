@@ -36,3 +36,4 @@ scraper-engine/cookies/
 
 *.png
 scraper-engine/*.png
+scraper-engine/chrome-profile/

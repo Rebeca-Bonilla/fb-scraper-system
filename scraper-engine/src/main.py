@@ -1,6 +1,7 @@
 import json
 import os
 import uvicorn
+import subprocess
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -28,6 +29,23 @@ def health():
         "message": "Scraper engine activo"
     }
 
+@app.post("/open-login")
+def open_login():
+    subprocess.Popen([
+        "google-chrome",
+        "--no-sandbox",
+        "--user-data-dir=/app/chrome-profile",
+        "--profile-directory=Default",
+        "https://www.facebook.com/login"
+    ], env={
+        **os.environ,
+        "DISPLAY": ":99"
+    })
+
+    return {
+        "status": "ok",
+        "message": "Chrome abierto para login manual"
+    }
 
 @app.post("/scrape")
 async def handle_scrape(payload: ScrapeRequest):

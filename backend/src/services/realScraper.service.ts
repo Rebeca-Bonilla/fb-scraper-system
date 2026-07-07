@@ -13,31 +13,44 @@ export async function runRealScraper(job: ScrapingJob): Promise<ScrapingResult[]
     locations: job.locations,
     maxResults: job.maxResults,
     maxSeconds: job.maxSeconds,
-    workers: job.workers
+    workers: job.workers,
   }
 
   console.log('📦 Payload:', JSON.stringify(payload, null, 2))
 
-  const response = await fetch(`${SCRAPER_URL}/scrape`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  })
+  const controller = new AbortController()
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error(`❌ Scraper error ${response.status}:`, errorText)
-    throw new Error(`Scraper engine error (${response.status}): ${errorText}`)
+  const timeoutMs = Math.max((job.maxSeconds + 180) * 1000, 10 * 60 * 1000)
+
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, timeoutMs)
+
+  try {
+    const response = await fetch(`${SCRAPER_URL}/scrape`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Scraper error ${response.status}:`, errorText)
+      throw new Error(`Scraper engine error (${response.status}): ${errorText}`)
+    }
+
+    const data = await response.json()
+    console.log('📦 Respuesta del scraper:', JSON.stringify(data, null, 2))
+
+    const results = data.results ?? data.data ?? []
+
+    console.log(`✅ Scraper devolvió ${results.length} resultados`)
+
+    return results
+  } finally {
+    clearTimeout(timeout)
   }
-
-  const data = await response.json()
-  console.log('📦 Respuesta del scraper:', JSON.stringify(data, null, 2))
-
-  const results = data.results ?? data.data ?? []
-
-  console.log(`✅ Scraper devolvió ${results.length} resultados`)
-
-  return results
 }
