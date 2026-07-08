@@ -4,3 +4,9 @@ __pycache__/
 *.png
 *.html
 venv/
+
+chrome-profile/
+chrome-profiles/
+*.png
+*.csv
+

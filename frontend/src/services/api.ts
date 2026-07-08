@@ -43,6 +43,7 @@ export async function startScraping(data: {
   maxResults: number
   maxSeconds: number
   workers: number
+  accountAliases: string[]
 }) {
   const response = await fetch(`${API_URL}/scraping/start`, {
     method: 'POST',
@@ -64,5 +65,5 @@ export async function getTask(id: string) {
 }
 
 export function getDownloadUrl(id: string) {
-  return `${API_URL}/scraping/task/${id}/download`
+  return `${API_URL}/scraping/download/${id}`
 }

@@ -37,3 +37,15 @@ scraper-engine/cookies/
 *.png
 scraper-engine/*.png
 scraper-engine/chrome-profile/
+# Chrome
+scraper-engine/chrome-profiles/
+
+# Resultados
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# Screenshots
+*.png

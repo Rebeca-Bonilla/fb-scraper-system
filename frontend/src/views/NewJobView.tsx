@@ -1,5 +1,5 @@
-﻿import { useState } from 'react'
-import { getDownloadUrl, getTask, startScraping } from '../services/api'
+﻿import { useEffect, useState } from 'react'
+import { getAccounts, getDownloadUrl, getTask, startScraping } from '../services/api'
 
 const ciudadesPorEstado: Record<string, string[]> = {
   'Quintana Roo': ['Cancun', 'Playa del Carmen', 'Tulum', 'Chetumal'],
@@ -8,22 +8,47 @@ const ciudadesPorEstado: Record<string, string[]> = {
   'CDMX': ['CDMX'],
 }
 
+type Account = {
+  id?: string
+  alias: string
+  email: string
+  status?: string
+}
+
 function NewJobView() {
   const [concepto, setConcepto] = useState('')
   const [estado, setEstado] = useState('Quintana Roo')
   const [ciudad, setCiudad] = useState('Cancun')
   const [usarEstado, setUsarEstado] = useState(true)
   const [usarCiudad, setUsarCiudad] = useState(true)
-  const [cuentas, setCuentas] = useState(1)
-  const [tiempo, setTiempo] = useState(20)
+  const [tiempo, setTiempo] = useState(180)
+
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [selectedAliases, setSelectedAliases] = useState<string[]>([])
 
   const [jobId, setJobId] = useState('')
   const [jobStatus, setJobStatus] = useState('')
-  const [currentStep, setCurrentStep] = useState('') // 🌟 NUEVO: Estado para el flujo exacto
+  const [currentStep, setCurrentStep] = useState('')
   const [csvReady, setCsvReady] = useState(false)
   const [message, setMessage] = useState('')
+  const [totalLinks, setTotalLinks] = useState(0)
 
   const ciudades = ciudadesPorEstado[estado] || []
+
+  useEffect(() => {
+    cargarCuentas()
+  }, [])
+
+  async function cargarCuentas() {
+    const response = await getAccounts()
+    const loadedAccounts = response.accounts || []
+
+    setAccounts(loadedAccounts)
+
+    if (loadedAccounts.length > 0) {
+      setSelectedAliases(loadedAccounts.map((account: Account) => account.alias))
+    }
+  }
 
   function cambiarEstado(nuevoEstado: string) {
     setEstado(nuevoEstado)
@@ -37,6 +62,24 @@ function NewJobView() {
     return ''
   }
 
+  function toggleAccount(alias: string) {
+    setSelectedAliases((current) => {
+      if (current.includes(alias)) {
+        return current.filter((item) => item !== alias)
+      }
+
+      return [...current, alias]
+    })
+  }
+
+  function seleccionarTodas() {
+    setSelectedAliases(accounts.map((account) => account.alias))
+  }
+
+  function deseleccionarTodas() {
+    setSelectedAliases([])
+  }
+
   async function esperarResultado(id: string) {
     setMessage('Búsqueda en proceso...')
 
@@ -47,22 +90,24 @@ function NewJobView() {
       if (!job) return
 
       setJobStatus(job.status)
+      setTotalLinks(job.totalWhatsappLinks || 0)
+
       if (job.currentStep) {
-        setCurrentStep(job.currentStep) // 🌟 Actualizamos el paso real del flujo
+        setCurrentStep(job.currentStep)
       }
 
       if (job.status === 'completed') {
         clearInterval(interval)
         setCsvReady(true)
-        setCurrentStep('🏁 ¡Proceso completado exitosamente!')
+        setCurrentStep('Proceso completado exitosamente')
         setMessage(`Búsqueda completada. ${job.totalWhatsappLinks} enlaces encontrados.`)
       }
 
       if (job.status === 'failed') {
         clearInterval(interval)
         setCsvReady(false)
-        setCurrentStep('❌ Ejecución interrumpida por error')
-        setMessage('La búsqueda falló. Revisa los logs del backend.')
+        setCurrentStep('Ejecución interrumpida por error')
+        setMessage(`La búsqueda falló: ${job.error || 'revisa los logs del backend.'}`)
       }
     }, 1000)
   }
@@ -78,9 +123,15 @@ function NewJobView() {
       return
     }
 
+    if (selectedAliases.length === 0) {
+      setMessage('Selecciona al menos una cuenta para ejecutar la búsqueda.')
+      return
+    }
+
     const location = construirLocation()
 
     setCsvReady(false)
+    setTotalLinks(0)
     setJobStatus('queued')
     setCurrentStep('Encolando la tarea en el sistema...')
     setMessage('Creando búsqueda...')
@@ -90,7 +141,8 @@ function NewJobView() {
       locations: location ? [location] : [],
       maxResults: 10,
       maxSeconds: tiempo,
-      workers: cuentas,
+      workers: selectedAliases.length,
+      accountAliases: selectedAliases,
     })
 
     setJobId(response.jobId)
@@ -103,8 +155,19 @@ function NewJobView() {
       setMessage('El CSV todavía no está listo. Espera a que termine la búsqueda.')
       return
     }
+
     window.open(getDownloadUrl(jobId), '_blank')
   }
+
+  const isRunning = jobStatus === 'running' || jobStatus === 'queued'
+  const progressPercent =
+    jobStatus === 'completed'
+      ? 100
+      : jobStatus === 'failed'
+        ? 100
+        : isRunning
+          ? 45
+          : 0
 
   return (
     <section className="wireframe-page">
@@ -159,51 +222,171 @@ function NewJobView() {
         </div>
 
         <div className="form-row">
-          <label>Cantidad de cuentas</label>
-          <select value={cuentas} onChange={(e) => setCuentas(Number(e.target.value))}>
-            <option value={1}>1 cuenta</option>
-            <option value={2}>2 cuentas</option>
-            <option value={3}>3 cuentas</option>
-            <option value={4}>4 cuentas</option>
-            <option value={5}>5 cuentas</option>
-          </select>
+          <label>Cuentas disponibles</label>
+
+          <div
+            style={{
+              border: '1px solid #ddd',
+              borderRadius: '8px',
+              padding: '12px',
+              background: '#fafafa',
+            }}
+          >
+            <div style={{ marginBottom: '8px', fontWeight: 'bold' }}>
+              Seleccionadas: {selectedAliases.length} / {accounts.length}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+              <button type="button" onClick={seleccionarTodas}>
+                Seleccionar todas
+              </button>
+
+              <button type="button" onClick={deseleccionarTodas}>
+                Deseleccionar todas
+              </button>
+            </div>
+
+            {accounts.length === 0 && (
+              <div style={{ color: '#777' }}>
+                No hay cuentas disponibles.
+              </div>
+            )}
+
+            {accounts.map((account) => (
+              <label
+                key={account.alias}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 0',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedAliases.includes(account.alias)}
+                  onChange={() => toggleAccount(account.alias)}
+                />
+
+                <span>
+                  <strong>{account.alias}</strong>
+                  <span style={{ color: '#666' }}> — {account.email}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
 
         <div className="form-row">
-          <label>Tiempo de scroll</label>
+          <label>Tiempo de ejecución</label>
           <select value={tiempo} onChange={(e) => setTiempo(Number(e.target.value))}>
-            <option value={20}>20 segundos</option>
-            <option value={60}>1 minuto</option>
             <option value={180}>3 minutos</option>
             <option value={300}>5 minutos</option>
-            <option value={600}>10 minutos</option>
           </select>
         </div>
 
         <div className="search-preview">
           Región usada: <strong>{construirLocation() || 'Sin región'}</strong>
+          <br />
+          Cuentas usadas: <strong>{selectedAliases.join(', ') || 'Ninguna'}</strong>
         </div>
 
-        {/* 🌟 SECCIÓN EN VIVO DEL FLUJO DE TRABAJO DEL SISTEMA */}
         {jobId && (
-          <div className="job-status-container" style={{
-            background: '#f4f4f6', 
-            padding: '12px', 
-            borderRadius: '6px', 
-            margin: '15px 0', 
-            borderLeft: '4px solid #0066cc'
-          }}>
+          <div
+            className="job-status-container"
+            style={{
+              background: '#f4f4f6',
+              padding: '12px',
+              borderRadius: '6px',
+              margin: '15px 0',
+              borderLeft: '4px solid #0066cc',
+            }}
+          >
             <div className="job-status">
-              ID Tarea: <strong style={{ fontFamily: 'monospace' }}>{jobId}</strong><br />
-              Estado Global: <span className={`badge-${jobStatus}`} style={{ fontWeight: 'bold' }}>{jobStatus.toUpperCase()}</span>
+              ID Tarea:{' '}
+              <strong style={{ fontFamily: 'monospace' }}>{jobId}</strong>
+              <br />
+              Estado Global:{' '}
+              <span className={`badge-${jobStatus}`} style={{ fontWeight: 'bold' }}>
+                {jobStatus.toUpperCase()}
+              </span>
             </div>
-            
-            {/* Indicador de Flujo Interno */}
-            <div className="flow-tracker" style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #ddd' }}>
-              Etapa del proceso: <br />
+
+            <div style={{ marginTop: '12px' }}>
+              <div
+                style={{
+                  height: '10px',
+                  background: '#ddd',
+                  borderRadius: '999px',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${progressPercent}%`,
+                    background:
+                      jobStatus === 'failed'
+                        ? '#cc3333'
+                        : jobStatus === 'completed'
+                          ? '#2e8b57'
+                          : '#0066cc',
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </div>
+
+              <div style={{ marginTop: '6px', fontSize: '13px', color: '#555' }}>
+                Progreso estimado: {progressPercent}%
+              </div>
+            </div>
+
+            <div
+              className="flow-tracker"
+              style={{
+                marginTop: '8px',
+                paddingTop: '8px',
+                borderTop: '1px solid #ddd',
+              }}
+            >
+              Etapa del proceso:
+              <br />
               <strong style={{ color: '#0066cc', display: 'block', marginTop: '3px' }}>
                 {currentStep || 'Esperando asignación...'}
               </strong>
+            </div>
+
+            <div style={{ marginTop: '8px' }}>
+              Enlaces encontrados:{' '}
+              <strong>{totalLinks}</strong>
+            </div>
+
+            <div style={{ marginTop: '8px' }}>
+              Cuentas activas:
+              <div style={{ display: 'grid', gap: '6px', marginTop: '6px' }}>
+                {selectedAliases.map((alias) => (
+                  <div
+                    key={alias}
+                    style={{
+                      background: '#fff',
+                      border: '1px solid #ddd',
+                      borderRadius: '6px',
+                      padding: '8px',
+                    }}
+                  >
+                    <strong>{alias}</strong>
+                    <div style={{ fontSize: '13px', color: '#666' }}>
+                      {isRunning
+                        ? 'Trabajando en la búsqueda...'
+                        : jobStatus === 'completed'
+                          ? 'Finalizado'
+                          : jobStatus === 'failed'
+                            ? 'Interrumpido'
+                            : 'En espera'}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -211,7 +394,7 @@ function NewJobView() {
         {message && <div className="notice">{message}</div>}
 
         <div className="action-row">
-          <button onClick={iniciarBusqueda} disabled={jobStatus === 'running' || jobStatus === 'queued'}>
+          <button onClick={iniciarBusqueda} disabled={isRunning}>
             Iniciar búsqueda
           </button>
 

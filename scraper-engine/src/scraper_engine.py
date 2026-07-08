@@ -11,7 +11,10 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-def create_driver():
+def create_driver(account):
+    alias = account["alias"]
+    profile_dir = f"/app/chrome-profiles/{alias}"
+
     options = Options()
     options.binary_location = "/usr/bin/google-chrome"
 
@@ -24,19 +27,20 @@ def create_driver():
     options.add_argument("--disable-background-timer-throttling")
     options.add_argument("--disable-renderer-backgrounding")
     options.add_argument("--disable-ipc-flooding-protection")
-    options.add_argument("--renderer-process-limit=4")
+    options.add_argument("--disable-features=Translate,AutomationControlled")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
+    options.add_argument("--remote-debugging-port=0")
     options.add_argument("--window-size=1366,768")
     options.add_argument("--lang=es-MX")
 
-    options.add_argument("--user-data-dir=/app/chrome-profile")
-    options.add_argument("--profile-directory=Default")
+    options.add_argument(f"--user-data-dir={profile_dir}")
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     driver.set_page_load_timeout(45)
 
     return driver
-
 
 def safe_get(driver, url, wait_seconds=6):
     try:
@@ -58,10 +62,15 @@ def check_saved_session(driver, account):
     current_url = driver.current_url.lower()
     driver.save_screenshot(f"/app/session_check_{alias}.png")
 
-    print(f"📍 URL sesión: {current_url}")
-    print(f"✅ Asumiendo sesión válida para {alias}")
+    print(f"📍 URL sesión {alias}: {current_url}")
 
+    if "login" in current_url or "checkpoint" in current_url:
+        print(f"❌ Sesión no válida para {alias}")
+        return False
+
+    print(f"✅ Sesión válida para {alias}")
     return True
+
 
 def extract_wa_me_links(text):
     patterns = [
@@ -151,7 +160,7 @@ def search_groups(driver, keyword, region, max_groups):
 
 
 def inspect_group_for_wa_me(driver, group, keyword, region, account_alias):
-    print(f"📖 Buscando wa.me dentro de: {group['group_name'][:60]}")
+    print(f"📖 [{account_alias}] Buscando wa.me dentro de: {group['group_name'][:60]}")
 
     results = []
     seen_links = set()
@@ -162,13 +171,11 @@ def inspect_group_for_wa_me(driver, group, keyword, region, account_alias):
 
     safe_get(driver, search_url, 8)
 
-    driver.save_screenshot("/app/group_before_scroll.png")
+    driver.save_screenshot(f"/app/inspect_group_search_{account_alias}.png")
 
     for _ in range(8):
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(3)
-
-    driver.save_screenshot("/app/inspect_group_search.png")
 
     page_text = driver.find_element(By.TAG_NAME, "body").text
     page_html = driver.page_source
@@ -177,12 +184,22 @@ def inspect_group_for_wa_me(driver, group, keyword, region, account_alias):
     links.extend(extract_wa_me_links(page_text))
     links.extend(extract_wa_me_links(page_html))
 
-    anchors = driver.find_elements(By.CSS_SELECTOR, "a[href]")
-    for anchor in anchors:
-        href = anchor.get_attribute("href") or ""
+    try:
+        hrefs = driver.execute_script("""
+            return Array.from(document.querySelectorAll('a[href]'))
+                .map(a => a.href)
+                .filter(Boolean);
+        """)
+    except Exception as e:
+        print(f"   ⚠️ No se pudieron leer anchors por JS: {e}")
+        hrefs = []
+
+    for href in hrefs:
         match = re.search(r"https?://wa\.me/[0-9]{8,15}", href)
         if match:
             links.append(match.group(0))
+            
+
     for link in links:
         link = link.strip()
 
@@ -202,14 +219,15 @@ def inspect_group_for_wa_me(driver, group, keyword, region, account_alias):
             "scrapedAt": datetime.now().isoformat(timespec="seconds"),
         })
 
-        print(f"      ✨ wa.me encontrado: {link}")
+        print(f"      ✨ [{account_alias}] wa.me encontrado: {link}")
 
-    print(f"   📌 wa.me encontrados en grupo: {len(results)}")
+    print(f"   📌 [{account_alias}] wa.me encontrados en grupo: {len(results)}")
     return results
 
 
 def scrape_with_account(account, keywords, locations, max_results, max_seconds):
-    driver = create_driver()
+    alias = account["alias"]
+    driver = create_driver(account)
     results = []
     started_at = time.time()
 
@@ -220,12 +238,14 @@ def scrape_with_account(account, keywords, locations, max_results, max_seconds):
         for keyword in keywords:
             for region in locations or [""]:
                 if time.time() - started_at >= max_seconds:
+                    print(f"⏱️ [{alias}] Tiempo agotado")
                     return results[:max_results]
 
                 groups = search_groups(driver, keyword, region, max_results)
 
                 for group in groups:
                     if time.time() - started_at >= max_seconds:
+                        print(f"⏱️ [{alias}] Tiempo agotado")
                         return results[:max_results]
 
                     found = inspect_group_for_wa_me(
@@ -233,7 +253,7 @@ def scrape_with_account(account, keywords, locations, max_results, max_seconds):
                         group,
                         keyword,
                         region,
-                        account["alias"]
+                        alias
                     )
 
                     results.extend(found)
@@ -247,9 +267,18 @@ def scrape_with_account(account, keywords, locations, max_results, max_seconds):
     return results[:max_results]
 
 
-def run_scraper(accounts, keywords, locations, max_results, max_seconds, workers):
-    usable_accounts = accounts[:workers]
+def run_scraper(accounts, keywords, locations, max_results, max_seconds, workers, account_aliases=None):
+    if account_aliases:
+        usable_accounts = [
+            account for account in accounts
+            if account.get("alias") in account_aliases
+        ]
+    else:
+        usable_accounts = accounts[:workers]
+
     all_results = []
+
+    print(f"🧾 Cuentas seleccionadas: {[a.get('alias') for a in usable_accounts]}")
 
     if not usable_accounts:
         return all_results
@@ -275,4 +304,15 @@ def run_scraper(accounts, keywords, locations, max_results, max_seconds, workers
             except Exception as e:
                 print(f"🚨 Error en worker: {e}")
 
-    return all_results[:max_results]
+    # deduplicar por enlace + grupo
+    seen = set()
+    clean_results = []
+
+    for item in all_results:
+        key = (item["whatsappLink"], item["groupUrl"])
+        if key in seen:
+            continue
+        seen.add(key)
+        clean_results.append(item)
+
+    return clean_results[:max_results]

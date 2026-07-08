@@ -21,34 +21,14 @@ class ScrapeRequest(BaseModel):
     max_seconds: int = Field(default=600, alias="maxSeconds")
     workers: int = 2
 
+    account_aliases: Optional[List[str]] = Field(default=None, alias="accountAliases")
 
-@app.get("/")
-def health():
-    return {
-        "status": "ok",
-        "message": "Scraper engine activo"
-    }
 
-@app.post("/open-login")
-def open_login():
-    subprocess.Popen([
-        "google-chrome",
-        "--no-sandbox",
-        "--user-data-dir=/app/chrome-profile",
-        "--profile-directory=Default",
-        "https://www.facebook.com/login"
-    ], env={
-        **os.environ,
-        "DISPLAY": ":99"
-    })
+class OpenLoginRequest(BaseModel):
+    alias: str
 
-    return {
-        "status": "ok",
-        "message": "Chrome abierto para login manual"
-    }
 
-@app.post("/scrape")
-async def handle_scrape(payload: ScrapeRequest):
+def load_accounts():
     accounts_path = os.path.join(os.path.dirname(__file__), "../accounts.local.json")
 
     if not os.path.exists(accounts_path):
@@ -66,9 +46,74 @@ async def handle_scrape(payload: ScrapeRequest):
             detail="No hay cuentas configuradas en el sistema."
         )
 
+    return accounts
+
+
+@app.get("/")
+def health():
+    return {
+        "status": "ok",
+        "message": "Scraper engine activo"
+    }
+
+
+@app.get("/accounts")
+def get_accounts():
+    accounts = load_accounts()
+
+    return {
+        "status": "success",
+        "accounts": [
+            {
+                "alias": account.get("alias"),
+                "email": account.get("email"),
+            }
+            for account in accounts
+        ]
+    }
+
+
+@app.post("/open-login")
+def open_login(payload: OpenLoginRequest):
+    alias = payload.alias.strip()
+
+    if not alias:
+        raise HTTPException(
+            status_code=400,
+            detail="Alias requerido."
+        )
+
+    profile_dir = f"/app/chrome-profiles/{alias}"
+
+    subprocess.Popen([
+        "google-chrome",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        f"--user-data-dir={profile_dir}",
+        "https://www.facebook.com/login"
+    ], env={
+        **os.environ,
+        "DISPLAY": ":99"
+    })
+
+    return {
+        "status": "ok",
+        "message": f"Chrome abierto para login manual de {alias}",
+        "profileDir": profile_dir,
+    }
+
+
+@app.post("/scrape")
+async def handle_scrape(payload: ScrapeRequest):
+    accounts = load_accounts()
+
     print(f"Iniciando ciclo de scraping con {len(accounts)} cuentas...")
     print(f"Workers recibidos: {payload.workers}")
     print(f"Cuentas cargadas: {[a.get('alias') for a in accounts]}")
+    print(f"Cuentas seleccionadas desde frontend: {payload.account_aliases}")
 
     results = run_scraper(
         accounts=accounts,
@@ -76,8 +121,12 @@ async def handle_scrape(payload: ScrapeRequest):
         locations=payload.locations,
         max_results=payload.max_results,
         max_seconds=payload.max_seconds,
-        workers=payload.workers
+        workers=payload.workers,
+        account_aliases=payload.account_aliases,
     )
+
+    print(f"📤 Resultados finales a devolver: {len(results)}")
+    print(json.dumps(results, ensure_ascii=False, indent=2))
 
     return {
         "status": "success",
